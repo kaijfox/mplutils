@@ -59,13 +59,14 @@ class plot_finalizer(object):
         kws = {'fmt': 'png', 'save': True, **kws}
         self.fmt = kws.pop('fmt')
         self.save = kws.pop('save')
+        self.display = kws.pop('display', True)
         self.kws = {'dpi': 300, 'bbox_inches': 'tight', **kws}
     
     def finalize(
         self,
         fig,
         name,
-        display = True,
+        display = None,
         tight = True,
         despine = True,
         save = True,
@@ -87,7 +88,7 @@ class plot_finalizer(object):
             out_file = str(plot_dir) + "/" + name + "." + (self.fmt if fmt is None else fmt)
             print(out_file)
             fig.savefig(out_file, **self.kws, **kw)
-        if display:
+        if display is True or self.display:
             plt.show(fig)
 
 

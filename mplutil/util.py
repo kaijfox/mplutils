@@ -1026,14 +1026,17 @@ def grouped_violin_points(
     )
 
 
-def flat_grid(total, n_col, ax_size, **subplot_kw):
+def flat_grid(total, n_col, ax_size, fig = None, **subplot_kw):
     n_row = int(np.ceil(total / n_col))
-    fig, ax = plt.subplots(
-        n_row,
-        n_col,
-        figsize=(ax_size[0] * n_col, ax_size[1] * n_row),
-        **subplot_kw,
-    )
+    if fig is None:
+        fig, ax = plt.subplots(
+            n_row,
+            n_col,
+            figsize=(ax_size[0] * n_col, ax_size[1] * n_row),
+            **subplot_kw,
+        )
+    else:
+        ax = fig.subplots(n_row, n_col, **subplot_kw)
     ax = np.array(ax)
     if ax.ndim == 1:
         ax = ax[None, :]
@@ -1044,6 +1047,24 @@ def flat_grid(total, n_col, ax_size, **subplot_kw):
         a.set_axis_off()
 
     return fig, ax_ravel[:total], ax
+
+
+def flat_subfig_grid(total, n_col, ax_size, **subplot_kw):
+    n_row = int(np.ceil(total / n_col))
+    fig = plt.figure(figsize=(ax_size[0] * n_col, ax_size[1] * n_row), **subplot_kw)
+    gs = fig.add_gridspec(n_row, n_col)
+    ax = np.array(
+        [
+            fig.add_subfigure(gs[i, j])
+            for i in range(n_row)
+            for j in range(n_col)
+            if i * n_col + j < total
+        ] + 
+        [None] * (n_row * n_col - total)
+    )
+    ax_grid = ax.reshape(n_row, n_col)
+
+    return fig, ax, ax_grid
 
 
 def ci(
@@ -1074,6 +1095,10 @@ def ci(
 def lighten(c, factor):
     c = np.array(mpl_color.to_rgba(c))
     return (1 - factor) * c + factor * np.array([1, 1, 1, c[3]])
+
+def darken(c, factor):
+    c = np.array(mpl_color.to_rgba(c))
+    return (1 - factor) * c + factor * np.array([0, 0, 0, c[3]])
 
 
 def stem_bar(y, center, as_kw=True):
