@@ -24,6 +24,10 @@ def axes_off(ax, y = True, x = True):
 
 
 def legend(ax, handles_labels=None, **kw):
+    if hasattr(ax, "__len__"):
+        for a in np.array(ax).ravel():
+            legend(a, handles_labels=handles_labels, **kw)
+        return
     kw = {
         **dict(
             loc="center left",
@@ -39,7 +43,58 @@ def legend(ax, handles_labels=None, **kw):
         )
     else:
         return ax.legend(**kw)
+    
+def label(ax, x=None, y=None, t=None, z=None):
+    # run on each axis if an array of axes
+    if hasattr(ax, "__len__"):
+        for a in np.array(ax).ravel():
+            label(a, x=x, y=y, t=t)
+        return
+    # set labels
+    if x is not None:
+        ax.set_xlabel(x)
+    if y is not None:
+        ax.set_ylabel(y)
+    if t is not None:
+        ax.set_title(t)
+    if z is not None:
+        ax.set_zlabel(z)
 
+
+def getc(*specs):
+    """
+    Get a color from a string.
+    
+    Can be
+    - A named color from the cmap library, `Color(spec)`
+    - A named color from matplotlib, `mpl.colors.to_rgba(spec)`
+    - A color stop in a colormap from the cmap library, as `map:stop` yeilding
+      `ColorMap(map)(stop)`, where stop is eg `1` or `.5`
+    """
+    # Return multiple colors as tuple
+    if len(specs) > 1:
+        return tuple(getc(spec) for spec in specs)
+    spec = specs[0]
+
+    # Get single color
+    try:
+        from cmap import Colormap, Color
+
+        try:
+            return Color(spec)
+        except ValueError as e:
+            try:
+                return mpl_color.to_rgba(spec)
+            except ValueError:
+                stop = spec.split(":")[-1]
+                if stop.startswith("."):
+                    stop = float(stop)
+                else:
+                    stop = int(stop)
+                cm = Colormap(":".join(spec.split(":")[:-1]))
+                return cm(stop)
+    except ImportError:
+        return spec
 
 def max_bounds(ax, apply = True):
     vmin = np.min([ax.get_xlim()[0], ax.get_ylim()[0]])
@@ -1025,9 +1080,104 @@ def grouped_violin_points(
         xtick_kw=xtick_kw,
     )
 
+def _process_gridspec_kw(hspace=None, wspace=None,
+                            left=None, right=None, top=None, bottom=None, **subplot_kw):
+    """Roll up gridspec kwargs to pass to subplot functions
+    
+    Args:
+        hspace (float, optional): Height spacing between subplots as fraction       
+            of subplot height. Defaults to matplotlib's default.
+            
+        wspace (float, optional): Width spacing between subplots as fraction
+            of subplot width. Defaults to matplotlib's default.
+
+        left (float, optional): Left margin as fraction of figure width
+
+        right (float, optional): Right margin as fraction of figure width
+
+        top (float, optional): Top margin as fraction of figure height
+
+        bottom (float, optional): Bottom margin as fraction of figure height
+
+        **subplot_kw: Additional keyword arguments for subplots (sharex, sharey,
+        etc.)
+        
+        Note: gridspec_kw will be overridden by the spacing parameters
+        above.
+    
+    Returns:
+        subplot_kw (dict)
+            Assembled kwargs dictionary for subplot functions.
+    """
+    # Build gridspec_kw from individual parameters
+    gridspec_kw = {}
+    if hspace is not None:
+        gridspec_kw['hspace'] = hspace
+    if wspace is not None:
+        gridspec_kw['wspace'] = wspace
+    if left is not None:
+        gridspec_kw['left'] = left
+    if right is not None:
+        gridspec_kw['right'] = right
+    if top is not None:
+        gridspec_kw['top'] = top
+    if bottom is not None:
+        gridspec_kw['bottom'] = bottom
+
+    # Add gridspec_kw to subplot_kw, overriding any existing gridspec_kw
+    if gridspec_kw:
+        subplot_kw['gridspec_kw'] = {
+            **subplot_kw.get('gridspec_kw', {}),
+            **gridspec_kw
+        }
+
+    return subplot_kw
+
+
+def subplots(ax_size, grid_size=(1, 1), fig=None, **subplot_kw):
+    """
+    Create subplots with easier access to gridspec spacing parameters.
+
+    Args:
+        ax_size (tuple):
+            Size of each axis as (width, height) in inches
+        grid_size (tuple):
+            Grid dimensions as (n_rows, n_cols)
+        fig (matplotlib.figure.Figure, optional):
+            Existing figure to use.
+            If None, creates new figure. Defaults to None.
+        subplot_kw (dict)
+            Additional keyword arguments for subplots (sharex, sharey, etc.)
+            Accepts gridspec keyword arguments as described in 
+            `_process_gridspec_kw`
+
+    Returns:
+        tuple: (fig, ax) where:
+            - fig: matplotlib Figure object
+            - ax: Axes object or array of Axes objects, as returned by e.g.
+              pyplot.subplots
+
+    Example:
+        >>> # Create tight grid with custom spacing
+        >>> fig, axes = subplots_with_gridspec(
+        ...     (3, 2), # 2-inch tall by 3-inch wide axes
+        ...     (2, 3), # 2 rows and 3 columns
+        ...     hspace=0.1, sharex=True, # Gridspec/subplot parameters
+        ... )
+    """
+    ax_h, ax_w = ax_size
+    grid_h, grid_w = grid_size
+    fig, _, ax = flat_grid(grid_h * grid_w, grid_w, (ax_w, ax_h), **subplot_kw)
+    # Convert back to non-grid formatting
+    if ax.size == 1:
+        return fig, ax[0, 0]
+    if ax.shape[0] == 1 or ax.shape[1] == 1:
+        return fig, ax.squeeze()
+    return fig, ax
 
 def flat_grid(total, n_col, ax_size, fig = None, **subplot_kw):
     n_row = int(np.ceil(total / n_col))
+    subplot_kw = _process_gridspec_kw(**subplot_kw)
     if fig is None:
         fig, ax = plt.subplots(
             n_row,
@@ -1049,10 +1199,10 @@ def flat_grid(total, n_col, ax_size, fig = None, **subplot_kw):
     return fig, ax_ravel[:total], ax
 
 
-def flat_subfig_grid(total, n_col, ax_size, **gs_kw):
+def flat_subfig_grid(total, n_col, ax_size, fig = None, **gs_kw):
     n_row = int(np.ceil(total / n_col))
-    fig = plt.figure(figsize=(ax_size[0] * n_col, ax_size[1] * n_row))
-    print(gs_kw)
+    if fig is None:
+        fig = plt.figure(figsize=(ax_size[0] * n_col, ax_size[1] * n_row))
     gs = fig.add_gridspec(n_row, n_col, **gs_kw)
     ax = np.array(
         [
@@ -1144,3 +1294,52 @@ def stack_lines(xs, ys, cs, **kws):
     # Create a LineCollection from the points, with colors specified by cs
     line_collection = LineCollection(points, colors=cs, **kws)
     return line_collection
+
+
+try:
+    from cmap import Colormap
+    parula = Colormap([
+        [0.2081, 0.1663, 0.5292], [0.2116238095, 0.1897809524, 0.5776761905], 
+        [0.212252381, 0.2137714286, 0.6269714286], [0.2081, 0.2386, 0.6770857143], 
+        [0.1959047619, 0.2644571429, 0.7279], [0.1707285714, 0.2919380952, 
+        0.779247619], [0.1252714286, 0.3242428571, 0.8302714286], 
+        [0.0591333333, 0.3598333333, 0.8683333333], [0.0116952381, 0.3875095238, 
+        0.8819571429], [0.0059571429, 0.4086142857, 0.8828428571], 
+        [0.0165142857, 0.4266, 0.8786333333], [0.032852381, 0.4430428571, 
+        0.8719571429], [0.0498142857, 0.4585714286, 0.8640571429], 
+        [0.0629333333, 0.4736904762, 0.8554380952], [0.0722666667, 0.4886666667, 
+        0.8467], [0.0779428571, 0.5039857143, 0.8383714286], 
+        [0.079347619, 0.5200238095, 0.8311809524], [0.0749428571, 0.5375428571, 
+        0.8262714286], [0.0640571429, 0.5569857143, 0.8239571429], 
+        [0.0487714286, 0.5772238095, 0.8228285714], [0.0343428571, 0.5965809524, 
+        0.819852381], [0.0265, 0.6137, 0.8135], [0.0238904762, 0.6286619048, 
+        0.8037619048], [0.0230904762, 0.6417857143, 0.7912666667], 
+        [0.0227714286, 0.6534857143, 0.7767571429], [0.0266619048, 0.6641952381, 
+        0.7607190476], [0.0383714286, 0.6742714286, 0.743552381], 
+        [0.0589714286, 0.6837571429, 0.7253857143], 
+        [0.0843, 0.6928333333, 0.7061666667], [0.1132952381, 0.7015, 0.6858571429], 
+        [0.1452714286, 0.7097571429, 0.6646285714], [0.1801333333, 0.7176571429, 
+        0.6424333333], [0.2178285714, 0.7250428571, 0.6192619048], 
+        [0.2586428571, 0.7317142857, 0.5954285714], [0.3021714286, 0.7376047619, 
+        0.5711857143], [0.3481666667, 0.7424333333, 0.5472666667], 
+        [0.3952571429, 0.7459, 0.5244428571], [0.4420095238, 0.7480809524, 
+        0.5033142857], [0.4871238095, 0.7490619048, 0.4839761905], 
+        [0.5300285714, 0.7491142857, 0.4661142857], [0.5708571429, 0.7485190476, 
+        0.4493904762], [0.609852381, 0.7473142857, 0.4336857143], 
+        [0.6473, 0.7456, 0.4188], [0.6834190476, 0.7434761905, 0.4044333333], 
+        [0.7184095238, 0.7411333333, 0.3904761905], 
+        [0.7524857143, 0.7384, 0.3768142857], [0.7858428571, 0.7355666667, 
+        0.3632714286], [0.8185047619, 0.7327333333, 0.3497904762], 
+        [0.8506571429, 0.7299, 0.3360285714], [0.8824333333, 0.7274333333, 0.3217], 
+        [0.9139333333, 0.7257857143, 0.3062761905], [0.9449571429, 0.7261142857, 
+        0.2886428571], [0.9738952381, 0.7313952381, 0.266647619], 
+        [0.9937714286, 0.7454571429, 0.240347619], [0.9990428571, 0.7653142857, 
+        0.2164142857], [0.9955333333, 0.7860571429, 0.196652381], 
+        [0.988, 0.8066, 0.1793666667], [0.9788571429, 0.8271428571, 0.1633142857], 
+        [0.9697, 0.8481380952, 0.147452381], [0.9625857143, 0.8705142857, 0.1309], 
+        [0.9588714286, 0.8949, 0.1132428571], [0.9598238095, 0.9218333333, 
+        0.0948380952], [0.9661, 0.9514428571, 0.0755333333], 
+        [0.9763, 0.9831, 0.0538]
+    ])
+except ImportError:
+    pass

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mplutil"
+version = "0.0.1"
+dependencies = [
+    "imageio[pyav]",
+    "h5py",
+    "scipy",
+    "scikit-image",
+    "matplotlib",
+    "seaborn",
+    "tqdm",
+    "nd2"
+]
+
+[project.optional-dependencies]
+gui = [
+    "pyside6",
+    "pyqtgraph"
+]
+
+[tool.setuptools.packages.find]
+include = ["mplutil", "mplutil.*"]
